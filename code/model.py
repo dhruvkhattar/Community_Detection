@@ -4,7 +4,7 @@ from data_handler import data_handler
 import pdb
 import math
 import copy
-
+import networkx as nx
 class CD():
 
     def __init__(self):
@@ -24,6 +24,11 @@ class CD():
         self.communities = np.arange(self.n_users)
         self.Labels = []
         self.alpha = 0.5
+        self.centers = []
+        self.G = nx.Graph()
+        self.G.add_nodes_from(self.communities)
+        self.G.add_edges_from(self.trusts)
+
 
         # Making agents where each agent has its own label
         for i in xrange(self.n_users):
@@ -48,6 +53,7 @@ class CD():
         self.ratingSimilarity()
         print "Game started"
         self.game()
+        self.detectCenters()
         pdb.set_trace()
 
 
@@ -90,7 +96,7 @@ class CD():
                 if community not in self.agents[current_agent].L:
                     temp = -1
                     for j in self.Labels[community]:
-                        temp += ((self.alpha * T[current_agent,j]) + ((1 - self.alpha) * R[current_agent,j]))
+                        temp += ((self.alpha * self.T[current_agent,j]) + ((1 - self.alpha) * self.R[current_agent,j]))
                     temp /= self.m
                     if temp > join_utility:
                         join_utility = temp
@@ -102,7 +108,7 @@ class CD():
             for community in self.agents[current_agent].L:
                 temp = 1
                 for j in self.Labels[community]:
-                    temp -= ((self.alpha * T[current_agent,j]) + ((1 - self.alpha) * R[current_agent,j]))
+                    temp -= ((self.alpha * self.T[current_agent,j]) + ((1 - self.alpha) * self.R[current_agent,j]))
                 temp /= self.m
                 if temp > leave_utility:
                     leave_utility = temp
@@ -142,6 +148,19 @@ class CD():
                 self.agents[current_agent].L.append(switch_communities[1])
                 self.Labels[switch_communities[1]].append(current_agent)
 
+    def detectCenters(self):
+        betweenness = nx.betweenness_centrality(self.G)
+        for community in self.communities:
+            if len(self.Labels[community]) < 1:
+                self.centers.append(-1)
+            else:
+                center = self.Labels[community][0]
+                max_betweenness = betweenness[center]
+                for agent in self.Labels[community]:
+                    if betweenness[agent] > max_betweenness:
+                        center = agent
+                        max_betweenness = betweenness[agent]
+                self.centers.append(center)
 
 class agent():
 
