@@ -10,9 +10,13 @@ class data_handler():
         self.trust_path = trust_path
         self.n_users = 0
         self.n_items = 0
+        self.n_trusts = 0
+        self.n_ratings = 0
+
+    def get_stats(self):
+        return self.n_users, self.n_items, self.n_trusts, self.n_ratings
 
     def load(self):
-
         users = []
         trusts = []
         with open(self.trust_path) as f:
@@ -46,10 +50,14 @@ class data_handler():
        
         self.n_users = len(users)
         self.n_items = len(items)
+        self.n_trusts = len(trusts)
+        self.n_ratings = len(ratings)
 
         print "Rating Matrix completed"
         print "Number of Users:", self.n_users
         print "Number of Items:", self.n_items
+        print "Number of Trust Relations:", self.n_trusts
+        print "Number of Ratings:", self.n_ratings
         
         items.sort()
         cnt = 0
