@@ -1,14 +1,18 @@
 from __future__ import division
 import numpy as np
 from data_handler import data_handler
+from multiprocessing import Process, Queue
 import pdb
 import math
 import copy
 import networkx as nx
+import random
+
 class CD():
 
     def __init__(self):
         
+        print "Code started"
         # Load trust and rating matrices
         data = data_handler("../data/rating.txt", "../data/trust.txt")
         self.trusts, self.ratings = data.load()
@@ -20,6 +24,7 @@ class CD():
         self.W = np.zeros((self.n_users, self.n_users))
         self.T = np.zeros((self.n_users, self.n_users))
         self.R = np.zeros((self.n_users, self.n_users))
+        self.P = np.zeros((self.n_users, self.n_users))
         self.n_it = 5 * self.n
         self.communities = np.arange(self.n_users)
         self.Labels = []
@@ -27,8 +32,9 @@ class CD():
         self.centers = []
         self.G = nx.Graph()
         self.G.add_nodes_from(self.communities)
-        self.G.add_edges_from(self.trusts)
-
+        r, c = np.where(self.trusts > 0)
+        self.G.add_edges_from(zip(r, c))
+        self.x = 70
 
         # Making agents where each agent has its own label
         for i in xrange(self.n_users):
@@ -53,7 +59,10 @@ class CD():
         self.ratingSimilarity()
         print "Game started"
         self.game()
+        print "Detecting Centers"
         self.detectCenters()
+        print "Calculating Accuracy"
+        self.calculateAccuracy()
         pdb.set_trace()
 
 
@@ -71,6 +80,7 @@ class CD():
                     else:
                         self.T[i, j] = self.T[j, i] = -((self.agents[i].deg * self.agents[j].deg) / (2*self.m))
 
+
     def ratingSimilarity(self):
         for i in xrange(self.n_users):
             for j in xrange(i, self.n_users):
@@ -82,52 +92,43 @@ class CD():
                 else:  
                     self.R[i, j] = self.R[j, i] = 0
 
+
     def game(self):
         for i in xrange(self.n_it):
-            if i%20 == 0:
-                print i
+            print i
             # Choosing current agent
             current_agent = i%self.n
 
-            # Calculating Max Utility for current agent by joining communities
+            # Calculating Max Utility for current agent by joining, leaving or switching communities
             join_utility = 0
             join_community = -1
-            for community in self.communities:
-                if community not in self.agents[current_agent].L:
-                    temp = -1
-                    for j in self.Labels[community]:
-                        temp += ((self.alpha * self.T[current_agent,j]) + ((1 - self.alpha) * self.R[current_agent,j]))
-                    temp /= self.m
-                    if temp > join_utility:
-                        join_utility = temp
-                        join_community = community
-
-            # Calculating Max Utility for current agent by leaving communities
             leave_utility = 0
             leave_community = -1
-            for community in self.agents[current_agent].L:
-                temp = 1
-                for j in self.Labels[community]:
-                    temp -= ((self.alpha * self.T[current_agent,j]) + ((1 - self.alpha) * self.R[current_agent,j]))
-                temp /= self.m
-                if temp > leave_utility:
-                    leave_utility = temp
-                    leave_community = community
-            
-            # Calculating Max Utility for current agent by switching communities
             switch_utility = 0
             switch_communities = (-1,-1)
+
             for lcommunity in self.agents[current_agent].L:
+                temp1 = 1
+                for j in self.Labels[lcommunity]:
+                    temp1 -= ((self.alpha * self.T[current_agent,j]) + ((1 - self.alpha) * self.R[current_agent,j]))
+                temp1 /= self.m
+                if temp1 > leave_utility:
+                    leave_utility = temp1
+                    leave_community = lcommunity
                 for jcommunity in self.communities:
-                    temp = 0
-                    for j in self.Labels[jcommunity]:
-                        temp += ((self.alpha * self.T[current_agent,j]) + ((1 - self.alpha) * self.R[current_agent,j]))
-                    for j in self.Labels[community]:
-                        temp -= ((self.alpha * self.T[current_agent,j]) + ((1 - self.alpha) * self.R[current_agent,j]))
-                    temp /= self.m
-                    if temp > switch_utility:
-                        switch_utility = temp
-                        switch_communities = (lcommunity, jcommunity)
+                    if jcommunity not in self.agents[current_agent].L:
+                        temp3 = 0
+                        temp2 = -1
+                        for j in self.Labels[jcommunity]:
+                            temp2 += ((self.alpha * self.T[current_agent,j]) + ((1 - self.alpha) * self.R[current_agent,j]))
+                        temp2 /= self.m
+                        if temp2 > join_utility:
+                            join_utility = temp2
+                            join_community = jcommunity
+                        temp3 = temp1 + temp2
+                        if temp3 > switch_utility:
+                            switch_utility = temp3
+                            switch_communities = (lcommunity, jcommunity)
 
             # Checking which action gives us the maximum utility
             if join_utility == 0 and leave_utility == 0 and switch_utility == 0:
@@ -148,6 +149,7 @@ class CD():
                 self.agents[current_agent].L.append(switch_communities[1])
                 self.Labels[switch_communities[1]].append(current_agent)
 
+
     def detectCenters(self):
         betweenness = nx.betweenness_centrality(self.G)
         for community in self.communities:
@@ -162,6 +164,38 @@ class CD():
                         max_betweenness = betweenness[agent]
                 self.centers.append(center)
 
+
+    def predictTrust(self, i , j):
+        if self.P[i, j] == 0:
+            for l1 in self.agents[i].L:
+                for l2 in self.agents[j].L:
+                    temp = (self.R[i, self.centers[l1]] + self.R[self.centers[l1], self.centers[l2]] + self.R[j, self.centers[l2]]) / 3
+                    if temp > self.P[i, j]:
+                        self.P[i, j] = temp
+        return self.P[i, j]
+                 
+
+    def calculateAccuracy(self):
+        n_N = int((((100 - self.x) / 100 ) * self.n_trusts))
+        r,c = np.where(self.trusts > 0)
+        N = random.sample(zip(r,c), n_N)
+        r,c = np.where(self.trusts == 0)
+        B = random.sample(zip(r,c), 4 * n_N)
+        BUN = B + N
+        T = []
+        for u, v in BUN:
+            T.append((self.predictTrust(u, v), u, v))
+        T.sort()
+        T.reverse()
+        cnt = 0
+        for i in xrange(n_N):
+            if (T[i][1],T[i][2]) in N:
+                cnt += 1
+
+        PA = cnt / n_N
+        print "Prediction Accuracy = ", PA
+
+        
 class agent():
 
     def __init__(self):
